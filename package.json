@@ -1,0 +1,26 @@
+{
+  "name": "appsign",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/swagboy2208/appsign.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/swagboy2208/appsign/issues"
+  },
+  "homepage": "https://github.com/swagboy2208/appsign#readme",
+  "devDependencies": {
+    "wrangler": "^4.128.0"
+  }
+}
